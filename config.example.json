@@ -1,0 +1,28 @@
+{
+  "wifi_ssid": "your-network",
+  "wifi_password": "your-password",
+
+  "base_url": "https://api.openai.com/v1",
+  "api_key": "sk-...",
+  "model": "gpt-4o-mini",
+  "temperature": 0.2,
+  "max_tokens": 800,
+
+  "tavily_api_key": "tvly-...",
+  "tavily_max_results": 5,
+  "tavily_search_depth": "basic",
+
+  "verify_tls": true,
+  "ca_cert": "/certs/roots.pem",
+  "request_timeout": 45,
+
+  "max_tool_iterations": 12,
+  "history_limit": 24,
+  "system_prompt": "",
+
+  "web_enabled": true,
+  "web_port": 80,
+
+  "led_pin": 48,
+  "led_count": 1
+}

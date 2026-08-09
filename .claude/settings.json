@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /dev/cu.* /dev/tty.usb* 2>&1)",
+      "Read(//dev/**)",
+      "Bash(system_profiler SPUSBDataType)",
+      "Bash(ioreg -p IOUSB -l -w 0)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(.venv/bin/pip -q install --upgrade pip esptool mpremote)",
+      "Bash(.venv/bin/esptool version *)",
+      "Bash(.venv/bin/mpremote version *)",
+      "Bash(timeout 60 .venv/bin/esptool --port /dev/cu.usbmodem1101 flash-id)",
+      "WebFetch(domain:micropython.org)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(mkdir -p backup)",
+      "Bash(timeout 900 .venv/bin/esptool --port /dev/cu.usbmodem1101 --baud 921600 read-flash 0 0x800000 backup/esp-claw-full-8MB.bin)",
+      "Bash(shasum -a 256 backup/*.bin)",
+      "Bash(timeout 300 .venv/bin/esptool --port /dev/cu.usbmodem1101 --chip esp32s3 --baud 921600 write-flash -z 0 firmware/ESP32_GENERIC_S3-SPIRAM_OCT-20260406-v1.28.0.bin)",
+      "Bash(timeout 60 .venv/bin/mpremote connect /dev/cu.usbmodem1101 exec ' *)",
+      "Bash(mkdir -p src/agent src/skills/led/scripts src/skills/sysinfo/scripts src/skills/netscan/scripts src/skills/write-skill tools certs && echo ok)",
+      "Bash(openssl s_client -connect api.openai.com:443 -servername api.openai.com -showcerts)",
+      "Bash(curl -sSL -o /tmp/gtsr4.der https://i.pki.goog/r4.der)",
+      "Bash(openssl x509 *)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(openssl verify *)",
+      "Bash(curl -sSL -o gtsr4.pem https://pki.goog/repo/certs/gtsr4.pem)",
+      "Bash(chmod +x tools/*.sh)",
+      "Bash(./tools/deploy.sh)",
+      "Bash(timeout 90 .venv/bin/mpremote connect /dev/cu.usbmodem1101 exec ' *)",
+      "Bash(.venv/bin/mpremote connect *)",
+      "Bash(curl -sSL -o amazon1.pem https://www.amazontrust.com/repository/AmazonRootCA1.pem)",
+      "Bash(openssl crl2pkcs7 *)",
+      "Bash(openssl pkcs7 *)",
+      "Bash(timeout 120 .venv/bin/mpremote connect /dev/cu.usbmodem1101 exec ' *)",
+      "Bash(python3 -)",
+      "Bash(./tools/start.sh)",
+      "Bash(python3 -c ' *)",
+      "Bash(./tools/deploy.sh --config)",
+      "Bash(timeout 180 .venv/bin/mpremote connect /dev/cu.usbmodem1101 exec ' *)"
+    ],
+    "additionalDirectories": [
+      "/Users/mahadevgaonkar/code/esp32s3-agent/src"
+    ]
+  }
+}

@@ -347,8 +347,13 @@ class ToolRegistry:
         return data
 
     def _write_file(self, a):
-        path = a.get("path", "")
+        path = a.get("path", "") or ""
         content = a.get("content", "")
+        if not str(path).strip():
+            return (
+                "Error: path is empty. Pass an absolute path such as "
+                "/skills/<name>/scripts/foo.py or /tmp/draft.py"
+            )
         if not path.startswith("/"):
             return "Error: path must be absolute (got %r)" % path
         if not _is_mutable_path(path):
@@ -589,7 +594,31 @@ class ToolRegistry:
     def _http_get(self, a):
         limit = int(a.get("max_bytes", 2000))
         resp = httpc.get(a.get("url", ""), timeout=20, max_bytes=limit)
-        body = resp.content.decode("utf-8", "replace")
+        raw = resp.content
+        ctype = (resp.headers.get("content-type") or "").lower()
+        # Images and other binary must not be decoded as text -- MicroPython
+        # can raise UnicodeError, and the bytes are useless to the model anyway.
+        looks_binary = (
+            ctype.startswith("image/")
+            or ctype.startswith("audio/")
+            or ctype.startswith("video/")
+            or ctype.startswith("application/octet")
+            or (raw[:3] == b"\xff\xd8\xff")  # JPEG
+            or (raw[:8] == b"\x89PNG\r\n\x1a\n")
+            or (raw[:2] == b"BM")
+        )
+        if looks_binary:
+            return (
+                "HTTP %d\nContent-Type: %s\nBytes read: %d (binary; not shown)\n"
+                "Tip: use the URL as-is for download/display; do not expect "
+                "text body from image endpoints."
+                % (resp.status_code, ctype or "unknown", len(raw))
+            )
+        try:
+            body = raw.decode("utf-8")
+        except Exception:
+            body = raw.decode("utf-8", "ignore") if hasattr(raw, "decode") else str(raw)
+            body = "(partial decode)\n" + body
         return "HTTP %d\n%s" % (resp.status_code, body)
 
     def _gpio_write(self, a):

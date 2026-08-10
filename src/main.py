@@ -1,13 +1,17 @@
 """Entry point: brings up WiFi, the agent, and both chat interfaces.
 
-The serial console and the web server share one thread. Both file descriptors
-are polled, so whichever gets input first drives the agent; an LLM call blocks
-the other interface for its duration, which is the right trade for a
-single-user device and avoids a second 8 KB stack.
+A small reader thread collects console lines; the main loop serves the web
+server and runs the agent. The agent itself still only ever runs on the main
+thread, so nothing around it needs locking.
+
+The split exists because select.poll() on this board's USB-CDC stdin reports
+readable even when no byte is waiting. A single-threaded loop therefore blocked
+in sys.stdin.read(1) and never returned to the web server -- the console stayed
+responsive while the web page looked dead.
 """
 
+import _thread
 import gc
-import select
 import sys
 import time
 
@@ -84,13 +88,9 @@ def run():
     print("\nType a message and press enter. Commands: /reset /skills /info /quit\n")
     sys.stdout.write("> ")
 
-    poller = select.poll()
-    poller.register(sys.stdin, select.POLLIN)
+    _thread.start_new_thread(_console_reader, ())
 
-    buffer = ""
     while True:
-        # Serve any pending web request first so the browser stays responsive
-        # while the console sits idle waiting for a line.
         if server:
             try:
                 while server.poll_once():
@@ -98,24 +98,70 @@ def run():
             except Exception as exc:
                 print("[web] %s" % exc)
 
-        for _ in poller.poll(200):
-            ch = sys.stdin.read(1)
-            if ch in ("\n", "\r"):
-                line = buffer.strip()
-                buffer = ""
-                sys.stdout.write("\n")
-                if line:
-                    handle(agent, line)
-                sys.stdout.write("> ")
-            elif ch in ("\x7f", "\x08"):
-                if buffer:
-                    buffer = buffer[:-1]
-                    sys.stdout.write("\x08 \x08")
-            elif ch == "\x03":
+        line = None
+        _pending_lock.acquire()
+        try:
+            if _pending:
+                line = _pending.pop(0)
+        finally:
+            _pending_lock.release()
+
+        if line is not None:
+            if line == "\x03":
                 raise KeyboardInterrupt
-            else:
-                buffer += ch
-                sys.stdout.write(ch)
+            if line:
+                handle(agent, line)
+            sys.stdout.write("> ")
+
+        time.sleep_ms(20)
+
+
+_pending = []
+_pending_lock = _thread.allocate_lock()
+
+
+def _console_reader():
+    """Read console lines on a background thread.
+
+    select.poll() on this board's USB-CDC stdin reports readable even when no
+    byte is waiting, so the old single-threaded loop fell straight into a
+    blocking sys.stdin.read(1) and never got back to serving the web server --
+    the console kept working while the web page appeared dead.
+
+    Reading blocks here instead, where it costs nothing. Only completed lines
+    are handed to the main loop, so the agent still runs on a single thread and
+    needs no locking around it.
+    """
+    buffer = ""
+    while True:
+        try:
+            ch = sys.stdin.read(1)
+        except Exception:
+            time.sleep_ms(100)
+            continue
+
+        if ch in ("\n", "\r"):
+            line = buffer.strip()
+            buffer = ""
+            sys.stdout.write("\n")
+            _pending_lock.acquire()
+            try:
+                _pending.append(line)
+            finally:
+                _pending_lock.release()
+        elif ch in ("\x7f", "\x08"):
+            if buffer:
+                buffer = buffer[:-1]
+                sys.stdout.write("\x08 \x08")
+        elif ch == "\x03":
+            _pending_lock.acquire()
+            try:
+                _pending.append("\x03")
+            finally:
+                _pending_lock.release()
+        else:
+            buffer += ch
+            sys.stdout.write(ch)
 
 
 def handle(agent, line):

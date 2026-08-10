@@ -5,3 +5,4 @@ config.json
 .venv/
 firmware/*.bin
 backup/
+.DS_Store

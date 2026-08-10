@@ -30,7 +30,6 @@ FIELDS = (
     ("system_prompt", "textarea", "Extra system prompt", "Agent", {}),
 
     ("verify_tls", "bool", "Verify TLS certificates", "Security", {}),
-    ("ca_cert", "text", "CA bundle path", "Security", {}),
     ("request_timeout", "int", "Request timeout (s)", "Security", {"min": 5, "max": 120}),
 
     ("led_pin", "int", "User LED pin (GPIO)", "Hardware", {"min": 0, "max": 48}),
@@ -46,8 +45,8 @@ _HIDDEN = ("camera_enabled", "camera_frame_size", "camera_pins", "camera_quality
            "photo_dir", "photo_name", "photo_overwrite")
 
 # Shown read-only: nested structures, or paths the agent needs to find its
-# own code.
-_READ_ONLY = ("skills_dir", "wifi_timeout")
+# own code. Change these by deploying config.json, not the web form.
+_READ_ONLY = ("skills_dir", "wifi_timeout", "ca_cert")
 
 # Changing these cannot take effect without a reboot; everything else is
 # re-applied to the running agent immediately.

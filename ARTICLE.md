@@ -65,7 +65,6 @@ Here the model first loaded the `sysinfo` skill, then called `board_status`, the
 - Wi‑Fi and port changes need a restart; most other settings apply live.
 - **Max tool rounds** defaults to **50** so skill authoring and fix/retry loops can finish.
 
-> **Screenshots** were taken against a live board (`http://<board-ip>/`). On Medium, upload the PNGs from `docs/medium/` (relative paths won’t resolve in the editor).
 
 ---
 
@@ -244,10 +243,8 @@ It *is* a small on-device agent loop: tools, progressive skills, LAN chat + REST
 
 ## Closing
 
-If you already own an ESP32-S3 Sense and an API key, you can go from clone → flash → serial setup → chat in a single sitting. The interesting part is not “LLM on a microcontroller” as a stunt — it’s that **skills and tools live next to the metal**, so the model can operate *this* board and teach itself new procedures without a reflash.
+If you already own an ESP32-S3 Sense and an API key, you can go from clone → flash → serial setup → chat in a single sitting. The interesting part is “Agent on microcontroller” — it’s that **skills and tools live next to the metal**, so the model can operate *this* board and teach itself new procedures without a reflash.
 
 Clone it, flash it, answer three questions on the console, open the green terminal on your LAN, and ask the board how it’s doing.
 
 ---
-
-*Article source: `ARTICLE.md` in the project repo. Images: `docs/medium/01-web-chat.png`, `02-chat-reply.png`, `03-config.png`.*

@@ -112,6 +112,79 @@ class Client:
 
         return choices[0].get("message", {})
 
+    def chat_vision(self, prompt, data_url, detail="low"):
+        """One vision completion: text prompt + image data URL, no tools."""
+        if not self.api_key:
+            raise LLMError("no api_key configured; set it in /config.json")
+
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": data_url,
+                        "detail": detail or "low",
+                    },
+                },
+            ],
+        }]
+        headers = {
+            "Authorization": "Bearer " + self.api_key,
+            "Content-Type": "application/json",
+        }
+        # Vision payloads are large; give a bit more time than normal chat.
+        timeout = max(int(self.timeout), 90)
+
+        gc.collect()
+        for _ in range(3):
+            try:
+                resp = httpc.post(
+                    self.base_url + "/chat/completions",
+                    headers=headers,
+                    body=self._payload(messages, tools=None),
+                    timeout=timeout,
+                    cadata=self.cadata,
+                )
+            except OSError as exc:
+                raise LLMError("network error talking to %s: %s"
+                               % (self.base_url, exc))
+
+            if resp.status_code == 200:
+                break
+
+            detail_txt = resp.text[:500]
+            resp.content = b""
+            if resp.status_code == 400 and self._adapt(detail_txt):
+                gc.collect()
+                continue
+            raise LLMError("HTTP %d from vision API: %s"
+                           % (resp.status_code, detail_txt))
+        else:
+            raise LLMError("vision API kept rejecting the request parameters")
+
+        try:
+            data = resp.json()
+        except Exception as exc:
+            raise LLMError("could not parse vision response: %s" % exc)
+        finally:
+            resp.content = b""
+            gc.collect()
+
+        if "error" in data:
+            raise LLMError(str(data["error"].get("message", data["error"])))
+        choices = data.get("choices")
+        if not choices:
+            raise LLMError("vision API returned no choices")
+        msg = choices[0].get("message") or {}
+        text = msg.get("content") or ""
+        usage = data.get("usage") or {}
+        if usage:
+            print("[llm] vision tokens prompt=%s completion=%s" % (
+                usage.get("prompt_tokens"), usage.get("completion_tokens")))
+        return text
+
     def list_models(self, timeout=15):
         """Return sorted model ids from GET {base_url}/models, or raise LLMError.
 

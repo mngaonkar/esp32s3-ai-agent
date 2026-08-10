@@ -14,7 +14,9 @@ import time
 
 from . import camera as _camera
 from . import httpc
+from . import llm as _llm
 from . import search as _search
+from . import vision as _vision
 from . import wifi
 from .skills import parse_frontmatter
 
@@ -103,6 +105,7 @@ class ToolRegistry:
         self._np = None
         self.tavily = _search.TavilyClient(cfg, cadata)
         self.camera = _camera.CameraDevice(cfg)
+        self._cadata = cadata
         self.last_photo = None
         self._register_all()
 
@@ -270,12 +273,12 @@ class ToolRegistry:
             self.add(
                 "take_photo",
                 "Take a photo with the onboard camera and save it to the "
-                "board's filesystem. Returns the saved path, dimensions and "
-                "file size. You cannot see the image yourself -- report where "
-                "it was saved, do not describe what is in it.",
+                "board's filesystem. Returns path, size and view_url. To "
+                "describe or analyse what is in the image, call "
+                "analyze_photo next with that path (or omit path for latest).",
                 {
-                    "filename": {"type": "string", "description": "Optional name, e.g. 'desk.bmp'. Defaults to a timestamp."},
-                    "frame_size": {"type": "string", "description": "QQVGA, QVGA, VGA, SVGA (default), XGA, HD, SXGA or UXGA."},
+                    "filename": {"type": "string", "description": "Optional name, e.g. 'desk.bmp'. Defaults to a reused latest name."},
+                    "frame_size": {"type": "string", "description": "QQVGA, QVGA (default for vision), VGA, … Prefer QVGA or QQVGA if you will analyze."},
                 },
                 [],
                 self._take_photo,
@@ -285,6 +288,21 @@ class ToolRegistry:
                 "List photos already saved on the board, with their sizes.",
                 {}, [],
                 self._list_photos,
+            )
+            self.add(
+                "analyze_photo",
+                "Send a saved photo to the vision-capable chat model and "
+                "return its description. Use after take_photo, or on an "
+                "existing file under /photos/, whenever the user asks what "
+                "is in the picture, to read text, or to analyse the scene. "
+                "Requires a vision model (e.g. gpt-4o, gpt-4o-mini).",
+                {
+                    "path": {"type": "string", "description": "Absolute path e.g. /photos/latest.bmp. Default: last capture or photo_dir/latest."},
+                    "question": {"type": "string", "description": "What to look for. Default: brief scene description."},
+                    "max_side": {"type": "integer", "description": "Downscale long side before upload (default 320)."},
+                },
+                [],
+                self._analyze_photo,
             )
 
         self.add(
@@ -578,6 +596,56 @@ class ToolRegistry:
         if not photos:
             return "No photos saved yet."
         return "\n".join("%s (%d bytes)" % (n, s) for n, s in photos)
+
+    def _resolve_photo_path(self, path):
+        if path:
+            if not path.startswith("/"):
+                path = self.camera.photo_dir.rstrip("/") + "/" + path
+            return path
+        # Prefer the last web-facing capture name.
+        if self.last_photo:
+            name = self.last_photo.split("?", 1)[0].rsplit("/", 1)[-1]
+            return self.camera.photo_dir.rstrip("/") + "/" + name
+        default = self.cfg.get("photo_name") or "latest.bmp"
+        return self.camera.photo_dir.rstrip("/") + "/" + default
+
+    def _analyze_photo(self, a):
+        path = self._resolve_photo_path(a.get("path"))
+        question = (a.get("question") or "").strip() or (
+            "Describe this photo briefly: main subjects, setting, any readable "
+            "text, and notable details. Be factual; say if the image is dark, "
+            "blurry, or unclear."
+        )
+        max_side = int(a.get("max_side") or 320)
+        if max_side < 64:
+            max_side = 64
+        if max_side > 640:
+            max_side = 640
+
+        try:
+            data_url, w, h, png_len = _vision.photo_data_url(path, max_side=max_side)
+        except Exception as exc:
+            return "Analyze failed (encode): %s: %s" % (type(exc).__name__, exc)
+
+        print("[vision] upload %s -> %dx%d png~%dB" % (path, w, h, png_len))
+        client = _llm.Client(self.cfg, self._cadata)
+        try:
+            text = client.chat_vision(question, data_url, detail="low")
+        except Exception as exc:
+            return (
+                "Analyze failed (API): %s: %s\n"
+                "Use a vision-capable model (e.g. gpt-4o or gpt-4o-mini) in Config."
+                % (type(exc).__name__, exc)
+            )
+        finally:
+            # Drop huge base64 string ASAP.
+            data_url = None
+            gc.collect()
+
+        return (
+            "Vision analysis of %s (%sx%s, png~%s bytes):\n%s"
+            % (path, w or "?", h or "?", png_len, text or "(empty reply)")
+        )
 
     def _web_search(self, a):
         try:

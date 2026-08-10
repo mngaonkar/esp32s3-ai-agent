@@ -73,7 +73,7 @@ Two honest limitations. The onboard **PDM microphone is not supported** — Micr
 
 You need a XIAO ESP32S3 Sense (or a similar ESP32-S3 with PSRAM), a USB cable that actually carries data, Python 3, Wi-Fi, and an OpenAI-compatible API key.
 
-**1. Clone and set up tooling.**
+**1. Clone and install dependencies.**
 
 ```bash
 git clone https://github.com/mngaonkar/esp32s3-ai-agent.git
@@ -81,20 +81,31 @@ cd esp32s3-ai-agent
 
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install esptool mpremote
+pip install -r requirements.txt
 ```
 
-**2. Flash the image.**
+The pinned set is small: `esptool` to talk to the ROM bootloader, `mpremote` for day-to-day file pushes, and `littlefs-python` to build the board's filesystem on your machine.
 
-Put the board in download mode first: hold **BOOT**, tap **RESET** (or hold BOOT while plugging in USB), wait a couple of seconds, release BOOT. Then:
+**2. Build the image.**
 
 ```bash
-tools/flash.sh
+python3 tools/build_image.py
 ```
 
-That writes a prebuilt image — MicroPython plus the agent filesystem. No credentials are baked into it.
+This packs two things into one flashable binary in `dist/`: the camera-capable MicroPython firmware, and a LittleFS image containing `main.py`, the `agent/` modules, every skill under `skills/`, and the CA bundle. `config.json` is deliberately left out, so the image carries no credentials and is safe to hand to someone else.
 
-**3. First-time setup over serial.**
+**3. Flash it.**
+
+Put the board in download mode first: hold **BOOT**, tap **RESET** (or hold BOOT while plugging in USB), keep BOOT held for about three seconds, then release. macOS shows it as "USB JTAG_serial debug unit" when it's ready.
+
+```bash
+tools/flash.sh                    # newest image in dist/
+tools/flash.sh dist/esp32s3-agent-1.0.0.bin   # or a specific one
+```
+
+That erases the chip and writes the whole image at offset 0 — firmware and filesystem in a single pass. A new board needs nothing else: no per-file copying, no Python tooling on the device side.
+
+**4. First-time setup over serial.**
 
 Setup is still console-based; there's no captive portal yet. Power-cycle *without* holding BOOT, then:
 
@@ -112,7 +123,7 @@ When setup finishes you should see something like this:
 [boot] web chat at http://10.0.0.x:80/
 ```
 
-**4. Open the chat.**
+**5. Open the chat.**
 
 From a phone or laptop on the same Wi-Fi, open that URL. `tools/start.sh` resets the board and prints the address again if you lost it.
 

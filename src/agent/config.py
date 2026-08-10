@@ -56,17 +56,6 @@ _DEFAULTS = {
     # take_photo an explicit filename to keep a shot.
     "photo_overwrite": True,
     "photo_name": "latest.bmp",
-    # PDM microphone on the Sense board. DISABLED: MicroPython cannot read a
-    # PDM mic at all (machine.I2S has no PDM mode), so recording produces
-    # noise, not audio. See agent/audio.py.
-    "audio_enabled": False,
-    "audio_dir": "/audio",
-    "audio_name": "latest.wav",
-    "audio_overwrite": True,
-    "audio_seconds": 5,
-    "audio_max_seconds": 10,
-    "audio_gain": 6000,
-    "audio_pins": {"clk": 42, "data": 41, "ws": 2},
     "camera_pins": {
         "data": [15, 17, 18, 16, 14, 12, 11, 48],  # D0..D7
         "vsync": 38, "href": 47, "sda": 40, "scl": 39,

@@ -41,8 +41,6 @@ header small::after{content:"_";animation:blink 1.1s step-end infinite}
 .shot img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:4px}
 .shot a{display:block;margin-top:5px;font-size:11px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;text-decoration:none}
 .shot a:hover{color:var(--accent)}
-.shot audio{width:100%;display:block;border:1px solid var(--line);border-radius:4px;background:var(--panel)}
-.shot .cap{font-size:11px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
 .bot>*:first-child{margin-top:0}.bot>*:last-child{margin-bottom:0}
 .bot p{margin:.5em 0}
 .bot h1,.bot h2,.bot h3,.bot h4{margin:.8em 0 .4em;line-height:1.25}
@@ -164,25 +162,17 @@ function add(text,cls){
   log.appendChild(d);log.scrollTop=log.scrollHeight;return d
 }
 
-function showMedia(url,kind){
+function showPhoto(url){
   const wrap=document.createElement('div');
   wrap.className='shot';
-  if(kind==='audio'){
-    const cap=document.createElement('div');
-    cap.className='cap'; cap.textContent='recording';
-    wrap.appendChild(cap);
-  }
-  const el=document.createElement(kind==='audio'?'audio':'img');
-  el.src=url;
-  if(kind==='audio'){el.controls=true;el.preload='auto';el.setAttribute('type','audio/wav')}
-  else{el.alt='photo from the board';
-       // Scroll again once it lands: the image has no height until then.
-       el.onload=()=>{log.scrollTop=log.scrollHeight}}
-  el.onerror=()=>{wrap.textContent='('+kind+' could not be loaded)'};
+  const img=document.createElement('img');
+  img.src=url; img.alt='photo from the board';
+  // Scroll again once it lands: the image has no height until then.
+  img.onload=()=>{log.scrollTop=log.scrollHeight};
+  img.onerror=()=>{wrap.textContent='(photo could not be loaded)'};
   const a=document.createElement('a');
-  a.href=url; a.target='_blank'; a.rel='noopener';
-  a.textContent=kind==='audio'?'download wav':'open full size';
-  wrap.appendChild(el); wrap.appendChild(a);
+  a.href=url; a.target='_blank'; a.rel='noopener'; a.textContent='open full size';
+  wrap.appendChild(img); wrap.appendChild(a);
   log.appendChild(wrap); log.scrollTop=log.scrollHeight;
 }
 
@@ -194,8 +184,7 @@ document.getElementById('f').onsubmit=async e=>{
     const j=await r.json();
     (j.events||[]).forEach(t=>add('- '+t,'tool'));
     add(j.reply||j.error||'(no reply)','bot');
-    if(j.photo)showMedia(j.photo,'img');
-    if(j.audio)showMedia(j.audio,'audio');
+    if(j.photo)showPhoto(j.photo);
   }catch(err){add('Request failed: '+err,'bot')}
   btn.disabled=false;st.textContent='ready';inp.focus();
 };
@@ -452,7 +441,6 @@ class WebServer:
                 events = []
                 self.agent.on_event = lambda kind, text: events.append("%s: %s" % (kind, text))
                 self.agent.registry.last_photo = None
-                self.agent.registry.last_audio = None
                 try:
                     reply = self.agent.ask(message) if message else "Empty message."
                 finally:
@@ -463,8 +451,6 @@ class WebServer:
                 # without depending on the model formatting a markdown link.
                 if self.agent.registry.last_photo:
                     payload["photo"] = self.agent.registry.last_photo
-                if self.agent.registry.last_audio:
-                    payload["audio"] = self.agent.registry.last_audio
                 self._respond(conn, "200 OK", "application/json", json.dumps(payload))
             elif method == "GET" and path == "/api/config":
                 self._respond(conn, "200 OK", "application/json", json.dumps(
@@ -488,9 +474,6 @@ class WebServer:
             elif method == "GET" and path.startswith("/photos/"):
                 self._serve_media(conn, path, "/photos/", "photo_dir",
                                   "/photos", "image/bmp")
-            elif method == "GET" and path.startswith("/audio/"):
-                self._serve_media(conn, path, "/audio/", "audio_dir",
-                                  "/audio", "audio/wav")
             elif path in ("/", "/index.html"):
                 self._respond(conn, "200 OK", "text/html; charset=utf-8", PAGE)
             else:

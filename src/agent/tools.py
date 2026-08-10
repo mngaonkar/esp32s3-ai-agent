@@ -12,7 +12,6 @@ import os
 import sys
 import time
 
-from . import audio as _audio
 from . import camera as _camera
 from . import httpc
 from . import search as _search
@@ -75,9 +74,7 @@ class ToolRegistry:
         self._np = None
         self.tavily = _search.TavilyClient(cfg, cadata)
         self.camera = _camera.CameraDevice(cfg)
-        self.mic = _audio.Recorder(cfg)
         self.last_photo = None
-        self.last_audio = None
         self._register_all()
 
     # ------------------------------------------------------------------ setup
@@ -244,26 +241,6 @@ class ToolRegistry:
                 "List photos already saved on the board, with their sizes.",
                 {}, [],
                 self._list_photos,
-            )
-
-        if self.mic.enabled:
-            self.add(
-                "record_audio",
-                "Record from the onboard microphone and save a WAV file. "
-                "Returns the path, duration and file size. You cannot hear the "
-                "recording -- report that it was made, never what it contains.",
-                {
-                    "seconds": {"type": "number", "description": "Length in seconds (default 5, max 10)."},
-                    "filename": {"type": "string", "description": "Optional name, e.g. 'note.wav'. Defaults to a reused name."},
-                },
-                [],
-                self._record_audio,
-            )
-            self.add(
-                "list_recordings",
-                "List audio recordings saved on the board, with their sizes.",
-                {}, [],
-                self._list_recordings,
             )
 
         self.add(
@@ -500,27 +477,6 @@ class ToolRegistry:
         if not photos:
             return "No photos saved yet."
         return "\n".join("%s (%d bytes)" % (n, s) for n, s in photos)
-
-    def _record_audio(self, a):
-        try:
-            info = self.mic.record(
-                seconds=a.get("seconds"),
-                path=a.get("filename"),
-            )
-        except Exception as exc:
-            return "Recording failed: %s: %s" % (type(exc).__name__, exc)
-        name = info["path"].rsplit("/", 1)[-1]
-        rel = "/audio/%s?t=%d" % (name, time.ticks_ms())
-        ip = wifi.ip()
-        info["listen_url"] = ("http://%s%s" % (ip, rel)) if ip else None
-        self.last_audio = rel
-        return info
-
-    def _list_recordings(self, a):
-        recs = self.mic.list_recordings()
-        if not recs:
-            return "No recordings yet."
-        return "\n".join("%s (%d bytes)" % (n, s) for n, s in recs)
 
     def _web_search(self, a):
         try:

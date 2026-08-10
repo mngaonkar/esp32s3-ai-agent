@@ -20,7 +20,7 @@ definition:
 | USB | native USB-Serial/JTAG |
 | Camera | **OV3660** on the Sense board — SCCB `0x3C`, chip id `0x3660` |
 | User LED | single yellow LED on **GPIO21**, **active-LOW** (not addressable) |
-| Microphone | I2S on GPIO41/42 |
+| Microphone | PDM on GPIO41/42 — **not usable from MicroPython**, see below |
 | SD slot | SPI on GPIO7/8/9/21 |
 | MAC | `10:b4:1d:e9:06:c4` |
 
@@ -42,29 +42,27 @@ The octal PSRAM is what makes this practical: **~8.3 MB of free heap**, so
 conversation history, TLS buffers and JSON payloads are never the constraint.
 Filesystem is 6 MB.
 
-### The microphone cannot be used from MicroPython
+### The microphone is not supported
 
-The Sense board's mic is a **PDM** microphone, and `machine.I2S` implements
-only standard I2S. From the `machine.I2S` maintainer:
+The Sense board's mic is a **PDM** microphone and MicroPython cannot read it —
+`machine.I2S` implements standard I2S only. From the `machine.I2S` maintainer:
 
 > "The PDM protocol is not supported by MicroPython. It is not possible to use
 > the `machine.I2S` class with a PDM microphone."
 > — [micropython discussion #16048](https://github.com/orgs/micropython/discussions/16048)
 
-The ESP32-S3 *hardware* has a PDM-to-PCM converter on I2S0 and ESP-IDF exposes
-it, but MicroPython does not; the docs list only `I2S.RX` and `I2S.TX`, and
+The ESP32-S3 *hardware* has a PDM-to-PCM converter and ESP-IDF exposes it, but
+MicroPython does not; the docs list only `I2S.RX` and `I2S.TX`, and
 [PR #14176](https://github.com/micropython/micropython/pull/14176), which adds
 `PDM_RX`, was never merged.
 
 Clocking the mic with a standard I2S receiver *does* return data, and it is
-tempting to decimate that bitstream in software. It does not work: a standard
-I2S receiver cannot align to PDM framing, so the output is noise with only
-weak correlation to sound, and no amount of filtering fixes it.
-`agent/audio.py` keeps that attempt for reference with `audio_enabled`
-defaulting to `False`, so the agent advertises no recording tools.
+tempting to decimate that bitstream in software. Do not: a standard receiver
+cannot align to PDM framing, so the result is noise that no amount of filtering
+improves. Audio support was tried, measured, and removed.
 
-To record audio you would need to build MicroPython with PR #14176 applied,
-or use ESP-IDF/Arduino, or CircuitPython (`audiobusio.PDMIn`).
+Recording would require building MicroPython with PR #14176 applied, or using
+ESP-IDF/Arduino, or CircuitPython (`audiobusio.PDMIn`).
 
 ## Quick start
 
@@ -177,9 +175,6 @@ Check with `curl -m 5 -o /dev/null -w '%{http_code}\n' http://<board-ip>/`;
 
 ## Using it
 
-Two interfaces share one thread; whichever receives input first drives the
-agent.
-
 **Serial console**
 
 ```
@@ -208,8 +203,15 @@ the board serves this on a LAN that may have no route to the internet, so a
 CDN library is not an option. Model output is HTML-escaped before any markdown
 is applied, so a reply containing `<script>` renders as text.
 
-Both interfaces share one thread, so whichever gets input first drives the
-agent; a request in flight blocks the other until it finishes.
+A small reader thread collects console lines while the main loop serves the
+web server and runs the agent, so the two interfaces do not starve each other.
+The agent itself only ever runs on the main thread, so nothing around it needs
+locking. A request in flight does block the other interface until it finishes.
+
+This split is not decoration. `select.poll()` on this board's USB-CDC stdin
+reports readable even when no byte is waiting, so a single-threaded loop falls
+into a blocking `sys.stdin.read(1)` on its first pass and never returns to the
+web server — the console stays responsive while the web page looks dead.
 
 ## Settings screen
 

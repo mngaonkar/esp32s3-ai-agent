@@ -43,9 +43,7 @@ FIELDS = (
 # photo settings are tuned to this specific sensor and wiring; a wrong value
 # there breaks capture in ways that are not obvious from the form.
 _HIDDEN = ("camera_enabled", "camera_frame_size", "camera_pins", "camera_quality",
-           "photo_dir", "photo_name", "photo_overwrite",
-           "audio_enabled", "audio_dir", "audio_name", "audio_overwrite",
-           "audio_seconds", "audio_max_seconds", "audio_gain", "audio_pins")
+           "photo_dir", "photo_name", "photo_overwrite")
 
 # Shown read-only: nested structures, or paths the agent needs to find its
 # own code.

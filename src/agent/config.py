@@ -31,9 +31,8 @@ _DEFAULTS = {
     "request_timeout": 45,
     # Agent behaviour.
     "skills_dir": "/skills",
-    # Authoring a skill takes ~8 rounds on its own (load write-skill, list,
-    # write manifest, write script, run, fix, re-run); 8 truncated it mid-task.
-    "max_tool_iterations": 12,
+    # Skill authoring needs many fix/retry rounds; stop only after a high cap.
+    "max_tool_iterations": 50,
     "history_limit": 24,
     "system_prompt": "",
     # Web chat server.

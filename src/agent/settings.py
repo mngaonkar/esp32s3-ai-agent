@@ -25,7 +25,7 @@ FIELDS = (
     ("tavily_search_depth", "select", "Search depth", "Search",
      {"options": ("basic", "advanced")}),
 
-    ("max_tool_iterations", "int", "Max tool rounds", "Agent", {"min": 1, "max": 30}),
+    ("max_tool_iterations", "int", "Max tool rounds", "Agent", {"min": 1, "max": 50}),
     ("history_limit", "int", "History limit", "Agent", {"min": 2, "max": 100}),
     ("system_prompt", "textarea", "Extra system prompt", "Agent", {}),
 

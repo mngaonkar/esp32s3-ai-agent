@@ -1,108 +1,124 @@
 ---
 name: write-skill
-description: Create a new skill for this agent, or edit an existing one, so the board gains a capability it did not have before. Use when the user asks you to teach the board something, remember a procedure, add a skill, or when you hit a task that no installed skill covers and the procedure is worth keeping.
-version: 1.0.0
+description: Create or update a skill from a user description, or save a
+  procedure you just used so future turns can reuse it. Use when the user asks
+  to teach the board something, add a skill, remember a workflow, or when you
+  finished a multi-step task that is worth keeping and no existing skill covers
+  it. On errors, reason and retry until the skill works.
+version: 3.1.0
 ---
 
-# Authoring new skills
+# Creating and saving skills
 
-This agent extends itself by writing skills to its own filesystem. A skill you
-create here is live for the very next message -- no reflash, no reboot.
+Skills are how this board remembers procedures. A skill is live for the next
+message as soon as `SKILL.md` is written -- no reflash.
 
-## What a skill is
+    /skills/<name>/SKILL.md          required instructions
+    /skills/<name>/scripts/*.py      optional code for loops / timing
 
-A directory under `/skills/` containing `SKILL.md`:
+## Core rule: reason, act, fix -- do not bail
 
-    /skills/<name>/SKILL.md          instructions (required)
-    /skills/<name>/scripts/*.py      code the agent can run (optional)
+When creating or testing a skill, **errors are normal**. You have many tool
+rounds (up to about 50 per turn). Use them.
 
-`SKILL.md` opens with YAML frontmatter, then markdown instructions:
+**Never stop at the first failure** with only an apology. On every error:
+
+1. **Read** the tool/script error carefully (path, errno, HTTP status, refusal
+   text from `write_file`).
+2. **Reason** about the cause (bad path, invalid frontmatter, missing
+   dependency, wrong pin, network, full flash, script bug).
+3. **Change** one concrete thing (edit script, fix YAML, different URL, free
+   space with `delete_file`, load the hardware skill, etc.).
+4. **Retry** the same goal (write / run_script / end-to-end check).
+5. Repeat until **success** or you hit a true hard limit (board cannot do it,
+   tool rounds exhausted, or the same fix failed 3+ times with no new info).
+
+Only then explain to the user what blocked you and what you tried.
+
+Bail-out patterns that are **wrong**:
+
+- "write_file failed so I stopped"
+- "the script raised, here is the traceback" (with no edit + re-run)
+- Declaring the skill done while the last test still failed
+
+## When to create a skill
+
+### A. User asked for one (description-driven)
+
+The user describes what the skill should do.
+
+1. Load this skill (you already did).
+2. `list_skills` once -- if something close exists, **edit it** instead of
+   duplicating.
+3. Plan: name, trigger phrases, tools/scripts, feasibility on **this** board.
+4. If another skill owns the hardware (`led`, `camera`, …), load it and reuse
+   its approach.
+5. Implement and **iterate until tests pass** (see loop below).
+6. Tell the user the skill name and one example trigger phrase.
+
+### B. Worth keeping (opportunistic)
+
+After a multi-step task **succeeded**, no existing skill covers it, and it is
+likely to be asked again -- save a skill and mention `Saved skill name`.
+
+Do not skill-ify one-off chat or a single trivial tool call.
+
+## Implementation loop (until success)
+
+Stay in this loop while authoring; do not narrate every micro-step to the user
+until you are done or truly stuck.
+
+1. **Draft** under `/tmp/<name>/` for scripts when behaviour is non-trivial.
+2. **`run_script`** (or run the tool sequence the skill will prescribe).
+3. If fail → diagnose → `write_file` fix → go to 2.
+4. When the draft works: `write_file` `/skills/<name>/SKILL.md` (valid
+   frontmatter; `name` == directory name).
+5. Copy proven scripts to `/skills/<name>/scripts/` (SKILL.md must exist first).
+6. One final check: catalog lists it; optional re-run on the final path.
+7. If `write_file` **Refused**, fix the content/path from the message and
+   write again -- do not abandon the skill.
+
+You may call several independent tools in one model round. Do not re-load
+write-skill or re-list skills every iteration.
+
+## Format
+
+**Name:** lowercase, hyphenated, matches directory.
+
+**Description:** what + when + user phrases (~500 chars). Only name +
+description stay in the system prompt.
 
     ---
-    name: coffee-timer
-    description: Time a pour-over brew with stage prompts. Use when the user
-      asks to brew coffee or start a brew timer.
+    name: example-name
+    description: What it does and when to use it, including user phrases.
     version: 1.0.0
     ---
 
-    # Coffee timer
-    ...instructions...
+    # Title
+    Steps, tools, judgement for a future agent turn...
 
-Write it with `write_file` to the exact path `/skills/<name>/SKILL.md`. That
-tool reindexes the registry automatically and reports back the new catalog, so
-you can confirm registration in the same step.
+**Scripts** get `args`, `cfg`, `machine`, `time`, `tool`:
 
-## The description is the most important line
+    tool("led_set", {"state": True})
 
-Only `name` and `description` stay resident in the system prompt. The body is
-loaded solely when a description convinces the agent the skill is relevant --
-so a vague description means a skill that is never used.
+No `import led`. Prefer `tool(...)`.
 
-State **what it does and when to use it**, and include the words a user would
-actually say. Compare:
+## This board
 
-- Weak: `description: Helps with the sensor.`
-- Strong: `description: Read the BME280 temperature and humidity sensor over
-  I2C and convert to Fahrenheit. Use when the user asks about temperature,
-  humidity, or how warm the room is.`
+- LED: `led_set` `{"state": true/false}` on `cfg["led_pin"]` (active-low).
+  Not RGB / neopixel.
+- Reuse camera / sysinfo / search skills for those domains.
+- Only real tools and hardware. If impossible (e.g. PDM mic under MicroPython),
+  say so after checking -- that is a hard stop, not a first-error bail.
 
-Keep it under about 500 characters. `name` must be lowercase, hyphenated, and
-match the directory name.
+## Fix or replace
 
-## Writing the body
+- Overwrite paths to update; bump `version`.
+- `delete_file` `/skills/<name>` removes a whole skill and reloads the catalog.
+- Prefer fixing in place over deleting unless the design was wrong.
 
-Write instructions for a competent agent that has never seen this task, not
-documentation for a human. Be specific about the parts that are not guessable
--- pin numbers, I2C addresses, unit conversions, thresholds, error handling --
-and skip anything a capable model already knows.
+## Done when
 
-Include judgement, not just steps: what a good result looks like, what to do
-when a reading is out of range, when to stop and ask. Keep the body under a few
-hundred lines; move bulk detail into separate files and reference them by path,
-since they load only on demand.
-
-Put anything involving loops, timing or many rapid hardware operations into
-`scripts/*.py` rather than describing tool calls, because each tool call is a
-full model round trip. Scripts receive `args`, `cfg`, `machine`, `time` and
-`tool` already in scope, print freely, and return data by assigning to
-`result`.
-
-## Reuse hardware that another skill already documents
-
-Never reinvent hardware access. If a skill already covers the hardware you
-need, load it first and copy its documented approach exactly. The `led` skill
-owns the RGB LED: it is a **neopixel** on `cfg["led_pin"]`, and a bare
-`machine.Pin(n).value(1)` cannot produce a colour -- it will execute cleanly
-and do nothing visible, which is worse than failing.
-
-Inside a script, call an existing tool with `tool(name, args)`:
-
-    tool("led_set", {"r": 0, "g": 0, "b": 51})
-
-That is the only supported way to reuse capability from a script. There is no
-importable module for a skill -- `import led` will raise `ImportError`. Prefer
-`tool(...)` or an existing script over writing new low-level code, and only
-write raw hardware code for hardware that no skill covers.
-
-Before claiming a new skill works, actually exercise it with `run_script` and
-check the output is what you expect. A script that runs without raising is not
-the same as a script that did the right thing.
-
-## Procedure
-
-1. Check `list_skills` first -- if a close skill exists, edit it instead of
-   adding a near-duplicate.
-2. Choose a lowercase hyphenated name.
-3. `write_file` the `SKILL.md`.
-4. `write_file` any scripts under `scripts/`.
-5. If you wrote a script, run it once with `run_script` to prove it executes.
-6. Tell the user the skill name, what it does, and one example phrase that
-   will trigger it.
-
-## Constraints
-
-Keep skills to what this hardware can actually do: the tools available to you,
-2.4 GHz WiFi, GPIO, and roughly 6 MB of filesystem. Do not write a skill that
-depends on a library that is not installed or a sensor that is not wired up. If
-the user asks for something the board cannot do, say so instead of writing a
-skill that will fail on first use.
+- Last test succeeded (script and/or tool sequence).
+- Catalog includes the skill.
+- User gets name + trigger phrase (or a one-line opportunistic save note).

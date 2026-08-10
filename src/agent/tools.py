@@ -45,6 +45,35 @@ def _exists(path):
         return False
 
 
+# Paths the agent may create, overwrite, or delete while authoring skills and
+# saving media. Everything else is protected so a bad tool call cannot wipe
+# firmware entrypoints or the agent package.
+_MUTABLE_PREFIXES = ("/skills/", "/tmp/", "/photos/", "/audio/")
+
+
+def _is_mutable_path(path):
+    if path in ("/skills", "/tmp", "/photos", "/audio"):
+        return True
+    for prefix in _MUTABLE_PREFIXES:
+        if path == prefix.rstrip("/") or path.startswith(prefix):
+            return True
+    return False
+
+
+def _rm_tree(path):
+    """Remove a file or directory tree. Returns a short status string."""
+    if not _exists(path):
+        return "missing"
+    if _is_dir(path):
+        for name in os.listdir(path):
+            child = path.rstrip("/") + "/" + name
+            _rm_tree(child)
+        os.rmdir(path)
+        return "dir"
+    os.remove(path)
+    return "file"
+
+
 def _validate_manifest(content, dir_name):
     """Return a problem description for a SKILL.md, or None when it is valid."""
     if not content.lstrip().startswith("---"):
@@ -155,16 +184,31 @@ class ToolRegistry:
 
         self.add(
             "write_file",
-            "Create or overwrite a text file on the board. Parent directories "
-            "are created automatically. To author a skill, load the "
-            "'write-skill' skill first and follow it: a skill is a directory "
-            "/skills/<name>/SKILL.md, never a loose .py file.",
+            "Create or overwrite a text file under /skills/, /tmp/, /photos/, "
+            "or /audio/. Parent dirs are created automatically. For a new "
+            "skill write /skills/<name>/SKILL.md (load write-skill for format) "
+            "then optional scripts/; never a loose .py under /skills/.",
             {
                 "path": {"type": "string", "description": "Absolute file path."},
                 "content": {"type": "string", "description": "Full file contents."},
             },
             ["path", "content"],
             self._write_file,
+        )
+
+        self.add(
+            "delete_file",
+            "Delete a file or an entire directory tree under /skills/, /tmp/, "
+            "/photos/, or /audio/. Use to remove a failed skill "
+            "(/skills/<name>/) and start over, or to free space. Protected "
+            "paths (agent code, config.json, main.py) cannot be deleted. "
+            "After deleting under /skills/, the skill registry is reloaded.",
+            {
+                "path": {"type": "string",
+                         "description": "Absolute path to a file or directory."},
+            },
+            ["path"],
+            self._delete_file,
         )
 
         self.add(
@@ -306,7 +350,16 @@ class ToolRegistry:
         path = a.get("path", "")
         content = a.get("content", "")
         if not path.startswith("/"):
-            return "Error: path must be absolute"
+            return "Error: path must be absolute (got %r)" % path
+        if not _is_mutable_path(path):
+            return (
+                "Refused: can only write under /skills/, /tmp/, /photos/, or "
+                "/audio/ (got %s). Draft under /tmp/ or install under /skills/."
+                % path)
+        if content is None:
+            content = ""
+        if not isinstance(content, str):
+            content = str(content)
 
         # Writing into /skills/ is how the agent extends itself, and it is also
         # where it most often goes wrong: dropping a loose .py in the root
@@ -348,24 +401,67 @@ class ToolRegistry:
                     return (
                         "Refused: skill '%s' has no SKILL.md yet, so a bundled "
                         "file cannot be attached to it. Write %s first, then "
-                        "add this file." % (rel_parts[0], manifest))
+                        "add this file. Or draft under /tmp/ until tests pass."
+                        % (rel_parts[0], manifest))
 
-        _mkdirp(path)
-        with open(path, "w") as f:
-            f.write(content)
+        if _exists(path) and _is_dir(path):
+            return "Error: %s is a directory; write to a file path inside it" % path
+
+        try:
+            _mkdirp(path)
+            with open(path, "w") as f:
+                f.write(content)
+        except OSError as exc:
+            errno = getattr(exc, "errno", None)
+            extra = ""
+            if errno in (28, 105):
+                extra = (" (filesystem full? use delete_file on old "
+                         "/photos or abandoned /skills)")
+            elif errno == 30:
+                extra = " (read-only filesystem)"
+            return "Error writing %s: %s%s" % (path, exc, extra)
+
         # A new or edited SKILL.md changes the catalog, so reindex immediately.
         if path.endswith("SKILL.md"):
             self.skills.discover()
             return ("Wrote %d bytes to %s and reloaded the skill registry.\n\n"
-                    "If this skill drives hardware, do NOT invent pin access in "
-                    "its scripts. Load the skill that already documents that "
-                    "hardware and reuse its approach -- for the RGB LED that is "
-                    "the 'led' skill, which uses the neopixel driver on the pin "
-                    "in cfg['led_pin'], not a bare machine.Pin. A bare Pin "
-                    "cannot produce a colour and will run cleanly while doing "
-                    "nothing.\n\nInstalled skills are now:\n%s"
+                    "If you are still prototyping, test scripts with "
+                    "run_script before claiming the skill works. Prefer "
+                    "drafting under /tmp/ then copying into "
+                    "/skills/<name>/scripts/ once tests pass. For hardware, "
+                    "load the skill that already owns it (e.g. led uses "
+                    "led_set with state true/false on cfg['led_pin'], not "
+                    "neopixel or inventing pins). To abandon a broken skill, "
+                    "delete_file the whole /skills/<name>/ directory.\n\n"
+                    "Installed skills are now:\n%s"
                     % (len(content), path, self.skills.catalog()))
         return "Wrote %d bytes to %s" % (len(content), path)
+
+    def _delete_file(self, a):
+        path = a.get("path", "")
+        if not path.startswith("/"):
+            return "Error: path must be absolute (got %r)" % path
+        if path in ("/", "/skills", "/tmp", "/photos", "/audio"):
+            return "Refused: will not delete the root of %s" % path
+        if not _is_mutable_path(path):
+            return (
+                "Refused: can only delete under /skills/, /tmp/, /photos/, or "
+                "/audio/ (got %s)" % path)
+        if not _exists(path):
+            return "Nothing to delete: %s does not exist" % path
+
+        try:
+            kind = _rm_tree(path)
+        except OSError as exc:
+            return "Error deleting %s: %s" % (path, exc)
+
+        skills_root = self.skills.root.rstrip("/")
+        if path == skills_root or path.startswith(skills_root + "/"):
+            self.skills.discover()
+            return ("Deleted %s (%s) and reloaded the skill registry.\n\n"
+                    "Installed skills are now:\n%s"
+                    % (path, kind, self.skills.catalog()))
+        return "Deleted %s (%s)" % (path, kind)
 
     def _run_script(self, a):
         path = a.get("path", "")

@@ -26,11 +26,27 @@ tools look self-explanatory but produce wrong or misleading results when driven 
 without the skill's guidance. A plausible-looking direct tool call is the most \
 common way to get this wrong.
 
+CREATING SKILLS: you can grow the skill list yourself by writing \
+/skills/<name>/SKILL.md (load the write-skill skill for format). Do this when:
+(1) the user describes a skill they want, or asks you to teach/remember a \
+procedure; or (2) you just finished a multi-step task that worked, is likely \
+to be asked again, and no existing skill covers it -- save it proactively and \
+mention the new skill name briefly. Do not create skills for one-off chat or \
+single trivial tool calls. Prefer editing a close existing skill over \
+duplicating it.
+
+ERRORS: do not give up after the first tool or script failure. Read the error, \
+reason about the cause, change something concrete, and retry. Keep iterating \
+toward success within the tool-round budget (dozens of rounds are available). \
+Only stop early if the board truly cannot do the task or the same approach \
+has failed repeatedly with no new information. Report what actually happened; \
+never describe a failed action as if it succeeded.
+
 Available skills:
 %s
 
-Report what actually happened. If a tool fails, say so and include the error \
-rather than describing the intended outcome as if it had succeeded."""
+Report what actually happened. If a tool fails after you have finished \
+retrying, say so and include the error rather than inventing success."""
 
 
 class Agent:
@@ -80,8 +96,8 @@ class Agent:
         messages = [{"role": "system", "content": self.system_prompt()}]
         messages.extend(self.history)
 
-        max_iters = self.cfg.get("max_tool_iterations", 8)
-        for _ in range(max_iters):
+        max_iters = self.cfg.get("max_tool_iterations", 50)
+        for round_i in range(max_iters):
             gc.collect()
             try:
                 message = self.client.chat(messages, tools=self.registry.schemas())
@@ -126,5 +142,11 @@ class Agent:
                 self.history.append(result_msg)
 
         self._trim()
-        return ("Stopped after %d tool rounds without a final answer. "
-                "Try narrowing the request." % max_iters)
+        return (
+            "Stopped after %d tool rounds without a final answer. "
+            "Partial tool work is still in conversation history -- continue "
+            "with a short follow-up (e.g. 'keep fixing until the skill works' "
+            "or 'summarize blockers'). max_tool_iterations is already high; "
+            "narrow the goal if retries are thrashing."
+            % max_iters
+        )

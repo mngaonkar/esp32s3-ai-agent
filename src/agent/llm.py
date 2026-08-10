@@ -111,3 +111,54 @@ class Client:
                 usage.get("prompt_tokens"), usage.get("completion_tokens")))
 
         return choices[0].get("message", {})
+
+    def list_models(self, timeout=15):
+        """Return sorted model ids from GET {base_url}/models, or raise LLMError.
+
+        Used by the config screen to populate the model dropdown. Providers that
+        are only chat-compatible may not implement this endpoint; callers should
+        fall back to a free-text field.
+        """
+        if not self.api_key:
+            raise LLMError("no api_key configured")
+
+        headers = {
+            "Authorization": "Bearer " + self.api_key,
+            "Content-Type": "application/json",
+        }
+        gc.collect()
+        try:
+            resp = httpc.get(
+                self.base_url + "/models",
+                headers=headers,
+                timeout=timeout,
+                cadata=self.cadata,
+            )
+        except OSError as exc:
+            raise LLMError("network error listing models at %s: %s"
+                           % (self.base_url, exc))
+
+        if resp.status_code != 200:
+            detail = resp.text[:200]
+            resp.content = b""
+            raise LLMError("HTTP %d listing models: %s"
+                           % (resp.status_code, detail))
+
+        try:
+            data = resp.json()
+        except Exception as exc:
+            raise LLMError("could not parse models response: %s" % exc)
+        finally:
+            resp.content = b""
+            gc.collect()
+
+        ids = []
+        for item in data.get("data") or []:
+            mid = item.get("id") if isinstance(item, dict) else None
+            if mid:
+                ids.append(str(mid))
+        # Unique + sort so the dropdown is stable and scannable.
+        ids = sorted(set(ids))
+        if not ids:
+            raise LLMError("models endpoint returned no model ids")
+        return ids

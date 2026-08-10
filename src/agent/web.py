@@ -225,7 +225,8 @@ function field(f){
     ctl='<input type="text" id="'+id+'" class="in" value="'+esc(f.value==null?'':String(f.value)).replace(/"/g,'&quot;')+'">';
   }
   return '<div class="row" data-k="'+f.key+'"><label for="'+id+'">'+esc(f.label)+'</label>'+ctl+
-         (f.restart?'<div class="hint">requires restart</div>':'')+'</div>';
+         (f.restart?'<div class="hint">requires restart</div>':'')+
+         (f.hint?'<div class="hint">'+esc(f.hint)+'</div>':'')+'</div>';
 }
 
 async function loadCfg(){
@@ -408,6 +409,26 @@ class WebServer:
             "message": message,
         }
 
+    def _fetch_model_ids(self):
+        """Live model list for the config dropdown, or a short error for a hint.
+
+        Uses a shorter timeout than chat so opening Config cannot hang for the
+        full request_timeout. Failures fall back to a free-text model field.
+        """
+        client = getattr(self.agent, "client", None)
+        if client is None:
+            return None, "model list unavailable"
+        try:
+            ids = client.list_models(timeout=12)
+            print("[web] listed %d models from %s" % (len(ids), client.base_url))
+            return ids, None
+        except Exception as exc:
+            err = str(exc)
+            if len(err) > 120:
+                err = err[:117] + "..."
+            print("[web] model list failed: %s" % exc)
+            return None, "could not list models (%s); type a name" % err
+
     def poll_once(self):
         """Accept and serve one pending connection, if any."""
         try:
@@ -453,8 +474,12 @@ class WebServer:
                     payload["photo"] = self.agent.registry.last_photo
                 self._respond(conn, "200 OK", "application/json", json.dumps(payload))
             elif method == "GET" and path == "/api/config":
+                model_ids, models_error = self._fetch_model_ids()
                 self._respond(conn, "200 OK", "application/json", json.dumps(
-                    {"fields": _settings.describe(self.agent.cfg),
+                    {"fields": _settings.describe(
+                        self.agent.cfg,
+                        model_ids=model_ids,
+                        models_error=models_error),
                      "extras": _settings.extras(self.agent.cfg)}))
             elif method == "POST" and path == "/api/config":
                 raw = conn.read(length) if length else b"{}"

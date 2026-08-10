@@ -57,8 +57,14 @@ for _f in FIELDS:
     _BY_KEY[_f[0]] = _f
 
 
-def describe(cfg):
-    """Field metadata plus current values, with secrets withheld."""
+def describe(cfg, model_ids=None, models_error=None):
+    """Field metadata plus current values, with secrets withheld.
+
+    model_ids: optional list of ids from GET /v1/models. When present the model
+    field is rendered as a dropdown. apply() still treats model as free text so
+    a saved name is never rejected just because the list endpoint failed later.
+    models_error: optional short reason shown as a hint under the text field.
+    """
     out = []
     for key, kind, label, group, extra in FIELDS:
         item = {
@@ -80,6 +86,18 @@ def describe(cfg):
                 item[k] = extra[k]
         if "options" in extra:
             item["options"] = list(extra["options"])
+
+        # Prefer a live model list when the API gave us one.
+        if key == "model" and model_ids:
+            opts = list(model_ids)
+            cur = cfg.get("model") or ""
+            if cur and cur not in opts:
+                opts = [cur] + opts
+            item["type"] = "select"
+            item["options"] = opts
+        elif key == "model" and models_error:
+            item["hint"] = models_error
+
         out.append(item)
     return out
 
